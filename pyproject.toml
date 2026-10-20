@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kubepick"
+version = "0.1.0"
+description = "Log in, fuzzy-pick your EKS, AKS and GKE clusters from one list, and get a tidy kubeconfig with names you can read"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Math A." }]
+keywords = ["kubernetes", "kubeconfig", "eks", "aks", "gke", "aws", "azure", "gcp", "fzf", "cli"]
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Environment :: Console",
+	"Intended Audience :: Developers",
+	"Intended Audience :: System Administrators",
+	"License :: OSI Approved :: The Unlicense (Unlicense)",
+	"Operating System :: MacOS",
+	"Operating System :: POSIX :: Linux",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.9",
+	"Programming Language :: Python :: 3.10",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Programming Language :: Python :: 3.13",
+	"Topic :: System :: Systems Administration",
+	"Topic :: Utilities",
+]
+requires-python = ">=3.9"
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/iammathh/kubepick"
+Issues = "https://github.com/iammathh/kubepick/issues"
+Changelog = "https://github.com/iammathh/kubepick/blob/main/CHANGELOG.md"
+
+[project.scripts]
+kubepick = "kubepick.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 160
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+# the code is indented with tabs
+ignore = ["W191", "E101"]

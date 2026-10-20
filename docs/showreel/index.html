@@ -1,0 +1,281 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>kubepick showreel</title>
+<style>
+@font-face{font-family:"Geist Mono";font-weight:400;src:url(fonts/GeistMono-Regular.woff2) format("woff2")}
+@font-face{font-family:"Geist Mono";font-weight:600;src:url(fonts/GeistMono-SemiBold.woff2) format("woff2")}
+:root{--bg:#f7f8fc;--w:#14161c;--w2:rgba(20,22,28,.72);--w3:rgba(20,22,28,.5);--w4:rgba(20,22,28,.14);--w5:rgba(20,22,28,.06);--grad:linear-gradient(100deg,#2563eb,#9333ea)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);width:1920px;height:1080px;overflow:hidden;font-family:"Geist Mono",ui-monospace,monospace;color:var(--w)}
+#stage{position:relative;width:1920px;height:1080px;overflow:hidden;background:var(--bg)}
+.abs{position:absolute}
+.scene{position:absolute;inset:0;display:none}
+.label{position:absolute;font-size:22px;letter-spacing:5px;font-weight:600;text-transform:uppercase;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mask{position:absolute;overflow:hidden}
+.mask>div{white-space:pre;font-weight:600;line-height:1.04;letter-spacing:-2px}
+.h1{font-size:100px}
+.sub{position:absolute;font-size:27px;line-height:1.5;color:var(--w2);white-space:pre}
+.term{position:absolute;border:1px solid var(--w4);background:#fff;box-shadow:0 18px 50px rgba(30,40,90,.08)}
+.term .bar{position:absolute;left:0;right:0;top:0;height:46px;border-bottom:1px solid var(--w5)}
+.term .bar i{position:absolute;top:16px;width:13px;height:13px;border:1px solid var(--w3);border-radius:50%}
+.term .bar b{position:absolute;right:20px;top:12px;font-size:16px;font-weight:400;color:var(--w3);letter-spacing:2px}
+.ln{position:absolute;white-space:pre;left:34px}
+.dim{color:var(--w3)}.y{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}.b{font-weight:600}
+.row{position:absolute;left:0;right:0;white-space:pre;height:54px;line-height:54px;padding-left:34px}
+.row span{display:inline-block}
+.pill{position:absolute;border:1px solid var(--w3);padding:0 22px;height:52px;line-height:50px;font-size:22px;white-space:pre;color:var(--w2)}
+.pill.fill{background:var(--grad);border-color:transparent;color:#fff;font-weight:600}
+.chip{position:absolute;border:1px solid var(--w4);height:46px;line-height:44px;padding:0 20px;font-size:20px;letter-spacing:2px;color:var(--w2)}
+.dot{position:absolute;width:10px;height:10px;border:1.5px solid var(--w2)}
+.dot.n{background:var(--grad);border-color:transparent}
+#wipe{position:absolute;top:0;left:0;width:1920px;height:1080px;background:var(--grad);color:#fff;display:none;z-index:50}
+#wipe div{position:absolute;left:120px;top:430px;font-size:210px;font-weight:600;letter-spacing:-8px;white-space:pre}
+#wipe span{position:absolute;left:126px;top:400px;font-size:24px;letter-spacing:6px;font-weight:600}
+.hud{position:absolute;z-index:40}
+</style></head><body><div id="stage">
+<svg class="abs" id="bg" width="1920" height="1080" style="left:0;top:0"></svg>
+<div id="scenes"></div>
+<div class="hud" id="hud" style="left:0;top:0"></div>
+<div id="wipe"><span></span><div></div></div>
+</div>
+<script>
+const W=1920,H=1080;
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const prog=(t,a,b)=>clamp((t-a)/(b-a));
+const eo=x=>1-Math.pow(1-x,3), eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const eb=x=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2)};
+const NS="http://www.w3.org/2000/svg";
+const $=(h)=>{const d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild};
+const typed=(s,t,a,cps)=>s.slice(0,Math.max(0,Math.min(s.length,Math.floor((t-a)*cps))));
+const caret=(t,on)=>on?`<span style="display:inline-block;width:.55ch;height:.95em;vertical-align:-.12em;background:var(--w);opacity:${Math.floor(t*3)%2?.25:1}"></span>`:'';
+// each scene animates over LENS[i] seconds, slowed down by SLOW, then holds its last frame for HOLD[i] seconds to be read
+const SLOW=1.5,LENS=[2.5,3,4,3,2.5],HOLD=[.5,1.5,2,1.5,2];
+let acc=0;const SCENES=LENS.map((l,i)=>{const a=acc;acc+=l*SLOW+HOLD[i];return [a,acc]});
+const DUR=acc;window.DUR=DUR;
+const NAMES=["","SYNC","ADD","KUBECONFIG","INSTALL"];
+
+/* ---------- background grid + crosshairs ---------- */
+const bg=document.getElementById('bg');
+for(let x=0;x<=W;x+=96){const l=document.createElementNS(NS,'line');l.setAttribute('x1',x);l.setAttribute('x2',x);l.setAttribute('y1',0);l.setAttribute('y2',H);l.setAttribute('stroke','rgba(20,22,28,.05)');bg.appendChild(l)}
+for(let y=0;y<=H;y+=96){const l=document.createElementNS(NS,'line');l.setAttribute('x1',0);l.setAttribute('x2',W);l.setAttribute('y1',y);l.setAttribute('y2',y);l.setAttribute('stroke','rgba(20,22,28,.05)');bg.appendChild(l)}
+const scan=document.createElementNS(NS,'rect');scan.setAttribute('width',W);scan.setAttribute('height',2);scan.setAttribute('fill','rgba(79,70,229,.07)');bg.appendChild(scan);
+
+/* ---------- logo ---------- */
+let LID=0;
+function logo(size){
+ const n=++LID;
+ const s=$(`<svg class="abs" viewBox="0 0 128 128" width="${size}" height="${size}" style="overflow:visible">
+ <defs>
+  <linearGradient id="g${n}" gradientUnits="userSpaceOnUse" x1="12" y1="6" x2="116" y2="124"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+  <linearGradient id="d${n}" gradientUnits="userSpaceOnUse" x1="-10" y1="-10" x2="10" y2="10"><stop offset="0" stop-color="#ffe14d"/><stop offset="1" stop-color="#ffb703"/></linearGradient>
+  <linearGradient id="f${n}" gradientUnits="userSpaceOnUse" x1="64" y1="6" x2="64" y2="124"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+ </defs>
+ <path class="pk" d="M64 6C98 6 118 22 118 50C118 84 88 112 64 124C40 112 10 84 10 50C10 22 30 6 64 6Z" pathLength="1" fill="url(#f${n})" stroke="url(#g${n})" stroke-width="4" stroke-linejoin="round" stroke-dasharray="1" stroke-dashoffset="1"/>
+ <path class="lk" d="M46 44H82M46 44L64 78M82 44L64 78" pathLength="1" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none" stroke-dasharray="1" stroke-dashoffset="1"/>
+ <circle class="r1" r="7" fill="url(#f${n})" stroke="#fff" stroke-width="3"/>
+ <circle class="r2" r="7" fill="url(#f${n})" stroke="#fff" stroke-width="3"/>
+ <circle class="dt" r="12" fill="url(#d${n})"/>
+ <path class="ck" d="M58.5 78.5l4.2 4.2L70 73.5" fill="none" stroke="#14161c" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/></svg>`);
+ const q=c=>s.querySelector(c);
+ s.set=(p)=>{ // p: pick, links, rings, dot, check  (0..1)
+  const dd=(el,v)=>{if(v>=.999){el.removeAttribute('stroke-dasharray');el.setAttribute('stroke-dashoffset',0)}else{el.setAttribute('stroke-dasharray',1);el.setAttribute('stroke-dashoffset',1-v)}};dd(q('.pk'),p.pick);
+  q('.pk').setAttribute('fill-opacity',clamp((p.pick-.6)/.4));
+  dd(q('.lk'),p.links);
+  const sc=(el,cx,cy,v)=>el.setAttribute('transform',`translate(${cx} ${cy}) scale(${Math.max(0,v)})`);
+  sc(q('.r1'),46,44,eb(p.rings));sc(q('.r2'),82,44,eb(clamp(p.rings*1.0)));
+  sc(q('.dt'),64,78,eb(p.dot));
+  dd(q('.ck'),p.check);
+ };
+ return s;
+}
+
+/* ---------- helpers for left-hand headline ---------- */
+function headline(parent,idx,title,subtext,x,y){
+ const lab=$(`<div class="label" style="left:${x}px;top:${y}px">0${idx} — ${NAMES[idx]}</div>`);
+ const lines=title.split('\n');
+ const masks=lines.map((ln,i)=>{const m=$(`<div class="mask" style="left:${x}px;top:${y+60+i*108}px;width:820px;height:112px"><div class="h1" style="font-size:100px;transform:translateY(120%)">${ln}</div></div>`);parent.appendChild(m);return m.firstChild});
+ const sub=$(`<div class="sub" style="left:${x}px;top:${y+80+lines.length*108+14}px;opacity:0">${subtext}</div>`);
+ parent.append(lab,sub);
+ return u=>{ lab.style.opacity=eo(prog(u,0,.3));lab.style.transform=`translateX(${(1-eo(prog(u,0,.3)))*-30}px)`;
+  masks.forEach((m,i)=>{m.style.transform=`translateY(${(1-eo(prog(u,.12+i*.1,.6+i*.1)))*120}%)`});
+  const p=eo(prog(u,.55,1));sub.style.opacity=p;sub.style.transform=`translateY(${(1-p)*20}px)`};
+}
+function term(parent,x,y,w,h,title){const t=$(`<div class="term" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="bar"><i style="left:20px"></i><i style="left:42px"></i><i style="left:64px"></i><b>${title}</b></div></div>`);parent.appendChild(t);return t}
+
+/* ================= scene builders ================= */
+const root=document.getElementById('scenes');
+const sc=[0,1,2,3,4].map(i=>{const d=$('<div class="scene"></div>');root.appendChild(d);return d});
+
+/* ---- 1: logo intro ---- */
+const L1=logo(420);L1.style.left='750px';L1.style.top='120px';sc[0].appendChild(L1);
+const wm=$(`<div class="mask" style="left:0;top:600px;width:1920px;height:160px"><div style="text-align:center;font-size:132px;letter-spacing:-5px;font-weight:600;transform:translateY(120%)">kubepick</div></div>`);sc[0].appendChild(wm);
+const tag=$(`<div style="position:absolute;left:0;width:1920px;top:790px;text-align:center;font-size:30px;color:var(--w2);opacity:0">Log in, pick your clusters, get a clean kubeconfig.</div>`);sc[0].appendChild(tag);
+const cl=$(`<div style="position:absolute;left:0;width:1920px;top:860px;text-align:center;font-size:20px;letter-spacing:8px;color:var(--w3);opacity:0">AWS&nbsp;&nbsp;·&nbsp;&nbsp;AZURE&nbsp;&nbsp;·&nbsp;&nbsp;GCP</div>`);sc[0].appendChild(cl);
+function s1(u){
+ L1.set({pick:eio(prog(u,0,.8)),links:eo(prog(u,.75,1.2)),rings:prog(u,1.0,1.4),dot:prog(u,1.3,1.7),check:eo(prog(u,1.65,2.0))});
+ const k=1+.05*Math.sin(prog(u,0,2.5)*Math.PI);L1.style.transform=`scale(${k})`;
+ wm.firstChild.style.transform=`translateY(${(1-eo(prog(u,1.2,1.8)))*120}%)`;
+ tag.style.opacity=eo(prog(u,1.8,2.2));tag.style.transform=`translateY(${(1-eo(prog(u,1.8,2.2)))*16}px)`;
+ cl.style.opacity=eo(prog(u,2.0,2.4));
+}
+
+/* ---- 2: login + sync ---- */
+const h2=headline(sc[1],1,'One list.\nThree clouds.','EKS · AKS · GKE, found through the CLIs\nyou already use and are logged in with.',110,150);
+const T2=term(sc[1],930,150,880,560,'zsh');
+const t2l=[0,1,2,3,4,5,6].map(i=>{const e=$(`<div class="ln" style="top:${70+i*52}px;font-size:26px"></div>`);T2.appendChild(e);return e});
+const chips2=['aws','az','gcloud'].map((n,i)=>{const e=$(`<div class="chip" style="left:${34+i*150}px;top:${70+52+4}px;opacity:0">✓ ${n}</div>`);T2.appendChild(e);return e});
+const dots=[];const dl=$('<div class="abs" style="left:110px;top:640px"></div>');sc[1].appendChild(dl);
+const CL=[['AWS',43,2],['AZURE',17,0],['GCP',5,0]];
+CL.forEach(([n,c,nw],r)=>{
+ dl.appendChild($(`<div class="abs dim" style="left:0;top:${r*64}px;font-size:18px;letter-spacing:3px;width:120px;line-height:14px">${n}</div>`));
+ for(let i=0;i<c;i++){const d=$(`<div class="dot${i>=c-nw?' n':''}" style="left:${120+i*13}px;top:${r*64}px;opacity:0"></div>`);dl.appendChild(d);dots.push({d,i,r,c})}
+});
+const cnt=CL.map(([n,c],r)=>{const e=$(`<div class="abs b" style="left:${120+c*13+16}px;top:${r*64-6}px;font-size:26px">0</div>`);dl.appendChild(e);return e});
+function s2(u){
+ h2(u);
+ T2.style.opacity=eo(prog(u,.05,.4));T2.style.transform=`translateY(${(1-eo(prog(u,.05,.45)))*40}px)`;
+ const c1='<span class="dim">$</span> '+typed('kubepick login',u,.35,26);
+ t2l[0].innerHTML=c1+caret(u,u<.95);
+ chips2.forEach((e,i)=>{const p=eb(prog(u,.9+i*.12,1.2+i*.12));e.style.opacity=clamp(p*2);e.style.transform=`scale(${.7+.3*p})`;e.style.borderColor=prog(u,.9+i*.12,1.2+i*.12)>=1?'rgba(79,70,229,.85)':''});
+ const c2=typed('kubepick sync',u,1.45,26);
+ t2l[2].innerHTML=u>1.4?'<span class="dim">$</span> '+c2+caret(u,u<2.0):'';
+ t2l[2].style.top=(70+2*52+22)+'px';
+ const a=prog(u,2.0,2.6),b=prog(u,2.3,2.75),c=prog(u,2.55,2.9);
+ const num=(n,p)=>Math.round(n*eo(p));
+ t2l[3].innerHTML=a>0?`<b class="b">AWS</b>    ${num(43,a)} cluster(s) in ${num(19,a)} account(s), <span class="y">${a>=1?2:0} new</span>`:'';
+ t2l[3].style.top=(70+3*52+30)+'px';
+ t2l[4].innerHTML=a>=1?'<span class="y">         + platform-prod / batch</span>':'';t2l[4].style.top=(70+4*52+26)+'px';t2l[4].style.fontSize='22px';
+ t2l[5].innerHTML=b>0?`<b class="b">AZURE</b>  ${num(17,b)} cluster(s) in ${num(8,b)} account(s)`:'';t2l[5].style.top=(70+5*52+8)+'px';
+ t2l[6].innerHTML=c>0?`<b class="b">GCP</b>    ${num(5,c)} cluster(s) in ${num(3,c)} account(s)`:'';t2l[6].style.top=(70+6*52-6)+'px';
+ /* cluster dots */
+ const grp=[[2.0,2.6],[2.3,2.75],[2.55,2.9]];
+ dots.forEach(({d,i,r,c})=>{const [s,e]=grp[r];const p=eb(prog(u,s+(e-s)*i/c*.8,s+(e-s)*i/c*.8+.25));d.style.opacity=clamp(p*3);d.style.transform=`scale(${Math.max(0,p)})`;
+  if(d.classList.contains('n')){d.style.opacity=u>2.9&&Math.floor(u*4)%2?.4:1}});
+ cnt.forEach((e,r)=>{const g=grp[r];e.textContent=Math.round(CL[r][1]*eo(prog(u,g[0],g[1]+.1)));e.style.opacity=prog(u,g[0],g[0]+.2)});
+}
+
+/* ---- 3: add / pick / name ---- */
+const h3=headline(sc[2],2,'Pick what\ngoes in.','Nothing is added unless you choose it.\nNames follow your convention.',110,150);
+const T3=term(sc[2],790,140,1030,640,'kubepick add');
+const hdr=$(`<div class="ln dim" style="top:76px;font-size:15px;letter-spacing:3px;left:34px;white-space:pre">  <span style="display:inline-block;width:11.3ch"></span></div>`);
+const cols=[['',2],['CLOUD',8],['ACCOUNT ID',14],['ACCOUNT',15],['CLUSTER',15],['REGION',14]];
+hdr.innerHTML=cols.map(([n,w],i)=>`<span class="hc${i}" style="display:inline-block;width:${w}ch;letter-spacing:0">${n}</span>`).join('');
+hdr.style.fontSize='22px';hdr.firstChild;
+T3.appendChild(hdr);
+const rows3=[['AWS','123456789012','platform-prod','api','eu-central-1'],['AWS','210987654321','platform-prod','batch','eu-west-1'],['AZURE','9c1e…77b0','analytics-dev','aks-analytics','germanywestcentral'],['GCP','data-sandbox','data-sandbox','gke-etl','europe-west4-a']];
+const rowEls=rows3.map((r,i)=>{const e=$(`<div class="row" style="top:${130+i*62}px;font-size:22px"></div>`);T3.appendChild(e);return e});
+const ids3=[$(`<div class="abs" style="left:0;top:0"></div>`)];
+const uline=$(`<div class="abs" style="left:${34+2*13.2+8*13.2}px;top:112px;height:2px;background:var(--grad);width:0"></div>`);T3.appendChild(uline);
+const hint=$(`<div class="ln dim" style="top:410px;font-size:18px;letter-spacing:1px">Tab: select several   Enter: confirm   ✓ → name = already added</div>`);T3.appendChild(hint);
+const pill3=$(`<div class="pill" style="left:790px;top:815px;opacity:0"><span class="y">12-digit account ID</span>  +  IAM Identity Center portal name</div>`);sc[2].appendChild(pill3);
+const nm=[0,1,2,3].map(i=>{const e=$(`<div class="ln" style="font-size:22px;opacity:0"></div>`);T3.appendChild(e);return e});
+nm[0].style.top='96px';nm[1].style.top='190px';nm[2].style.top='270px';nm[3].style.top='400px';
+const ARN='arn:aws:eks:eu-west-1:210987654321:cluster/batch',NEW='AWS-batch-PROD-euwest1';
+function s3(u){
+ h3(u);
+ T3.style.opacity=eo(prog(u,.05,.4));T3.style.transform=`translateY(${(1-eo(prog(u,.05,.45)))*40}px)`;
+ const listA=1-eo(prog(u,1.9,2.2));
+ const cur=u<.9?0:u<1.25?1:u<1.5?1:1; // cursor row
+ const move=[[.3,0],[.95,1]];
+ let curRow=u<.95?0:1; if(u>=1.25) curRow=1;
+ const sel0=u>.6,sel1=u>1.3;
+ hdr.style.opacity=listA;uline.style.width=(prog(u,.2,.7)*(12.6*13.2))+'px';uline.style.opacity=listA;hint.style.opacity=listA*eo(prog(u,.1,.4));
+ rowEls.forEach((e,i)=>{
+  const r=rows3[i];const sel=(i==0&&sel0)||(i==1&&sel1);const isCur=i==curRow;
+  const mark=sel?'<span class="y b">✓</span> ':(isCur?'<span class="y">&gt;</span> ':'  ');
+  const idcol=r[0]=='AWS'?`<span class="y b">${r[1]}</span>`:`<span class="dim">${r[1]}</span>`;
+  e.innerHTML=`<span style="width:2ch">${mark.replace(/^<span class="y b">✓<\/span> $/,'<span class="y b">✓</span>')}</span><span class="b" style="width:8ch">${r[0]}</span><span style="width:14ch">${idcol}</span><span style="width:15ch">${r[2]}</span><span style="width:15ch" class="${sel?'':'dim'}">${r[3]}</span><span class="dim" style="width:14ch">${r[4]}</span>`;
+  const rp=eo(prog(u,.15+i*.07,.5+i*.07));
+  e.style.opacity=rp*listA;e.style.transform=`translateX(${(1-rp)*50}px)`;
+  e.style.background=isCur&&u<1.9?'rgba(20,22,28,.05)':'transparent';
+ });
+ pill3.style.opacity=eo(prog(u,.5,.9))*(1-eo(prog(u,2.2,2.5)));pill3.style.transform=`translateY(${(1-eo(prog(u,.5,.9)))*20}px)`;
+ /* naming phase */
+ const np=prog(u,2.0,2.3);
+ nm[0].style.opacity=np;nm[0].innerHTML='<span class="dim">AWS / platform-prod / batch  (eu-west-1)</span>';
+ const arnLen=Math.round(ARN.length*(1-eio(prog(u,2.55,3.0))));
+ nm[1].style.opacity=np;nm[1].innerHTML=`<span class="dim" style="font-size:16px;letter-spacing:3px">AS FOUND</span>\n<span style="color:var(--w3);text-decoration:${arnLen<ARN.length?'none':'none'}">${ARN.slice(0,arnLen)}</span>`;nm[1].style.top='180px';
+ const n=typed(NEW,u,3.0,40);
+ nm[2].style.opacity=np;
+ const pretty=n.replace('PROD','<span class="y">PROD</span>');
+ nm[2].innerHTML=`<span class="dim" style="font-size:16px;letter-spacing:3px">NAME</span>\n<span style="font-size:44px;font-weight:600;letter-spacing:-1px">${pretty}${caret(u,u<3.6&&u>2.9)}</span>`;nm[2].style.top='300px';
+ nm[3].style.opacity=eo(prog(u,3.55,3.75));nm[3].innerHTML=`<span class="y b">✓</span>  added as <span class="b">${NEW}</span>`;nm[3].style.top='470px';
+}
+
+/* ---- 4: kubeconfig ---- */
+const h4=headline(sc[3],3,'A clean\nkubeconfig.','Backed up before every change.\nNo credentials stored.',110,150);
+const F4=term(sc[3],830,140,990,470,'~/.kube/config');
+const ctx=['AWS-batch-PROD-euwest1','AWS-core-PROD-eucentral1','GCP-gke-etl-SANDBOX-europewest4a'];
+const cEls=ctx.map((n,i)=>{const e=$(`<div class="row" style="top:${86+i*92}px;height:76px;line-height:76px;font-size:28px;padding-left:44px"><div style="position:absolute;left:0;top:10px;bottom:10px;width:4px;background:var(--grad)"></div><span class="nm">${n}</span><span class="dim" style="position:absolute;right:34px;font-size:16px;letter-spacing:3px">CONTEXT</span></div>`);F4.appendChild(e);return e});
+const cnt4=$(`<div class="abs dim" style="right:250px;top:12px;font-size:16px;letter-spacing:2px;z-index:2">3 contexts</div>`);F4.appendChild(cnt4);
+const rmLine=$(`<div class="ln" style="top:386px;font-size:24px;opacity:0"></div>`);F4.appendChild(rmLine);
+const pA=$(`<div class="pill" style="left:830px;top:650px;opacity:0"><span class="y b">✓</span> config.bak-kubepick  <span class="dim">· backup before every change</span></div>`);
+const pB=$(`<div class="pill" style="left:830px;top:722px;opacity:0"><span class="y b">✓</span> no credentials stored  <span class="dim">· tokens come from the cloud CLIs</span></div>`);
+const tools=['kubectl','Lens','k9s','Headlamp'].map((n,i)=>{const e=$(`<div class="chip" style="left:${830+[0,150,260,350][i]}px;top:820px;opacity:0">${n}</div>`);sc[3].appendChild(e);return e});
+sc[3].append(pA,pB);
+function s4(u){
+ h4(u);
+ F4.style.opacity=eo(prog(u,.05,.4));F4.style.transform=`translateY(${(1-eo(prog(u,.05,.45)))*40}px)`;
+ const rmP=prog(u,2.1,2.6);
+ cEls.forEach((e,i)=>{
+  const p=eo(prog(u,.3+i*.2,.7+i*.2));let op=p,tx=(1-p)*120,ty=0;
+  if(i==1){ // removed by rm
+    e.querySelector('.nm').style.textDecoration=rmP>0?'line-through':'none';e.querySelector('.nm').style.color=rmP>0?'var(--w3)':'';
+    const o=eo(prog(u,2.5,2.8));op*=1-o;tx+=o*-80;
+  }
+  if(i==2){const o=eo(prog(u,2.5,2.8));ty=-o*92}
+  e.style.opacity=op;e.style.transform=`translate(${tx}px,${ty}px)`;
+ });
+ cnt4.textContent=(u>2.7?2:3)+' contexts';
+ rmLine.style.opacity=eo(prog(u,1.95,2.1));rmLine.innerHTML='<span class="dim">$</span> '+typed('kubepick rm',u,2.0,22);
+ const a=eo(prog(u,1.1,1.45)),b=eo(prog(u,1.35,1.7));
+ pA.style.opacity=a;pA.style.transform=`translateX(${(1-a)*-40}px)`;pB.style.opacity=b;pB.style.transform=`translateX(${(1-b)*-40}px)`;
+ tools.forEach((e,i)=>{const p=eo(prog(u,1.6+i*.08,1.9+i*.08));e.style.opacity=p;e.style.transform=`translateY(${(1-p)*20}px)`});
+}
+
+/* ---- 5: outro ---- */
+const L5=logo(300);L5.style.left='810px';L5.style.top='110px';sc[4].appendChild(L5);
+const wm5=$(`<div class="mask" style="left:0;top:440px;width:1920px;height:140px"><div style="text-align:center;font-size:112px;letter-spacing:-4px;font-weight:600;transform:translateY(120%)">kubepick</div></div>`);sc[4].appendChild(wm5);
+const inst=$(`<div class="term" style="left:260px;top:640px;width:1400px;height:100px;opacity:0"><div class="ln" style="top:28px;font-size:34px;left:40px"></div></div>`);sc[4].appendChild(inst);
+const repo=$(`<div style="position:absolute;left:0;width:1920px;top:800px;text-align:center;font-size:26px;letter-spacing:4px;color:var(--w2);opacity:0">github.com/<span class="y b">iammathh</span>/kubepick</div>`);sc[4].appendChild(repo);
+const foot=$(`<div style="position:absolute;left:0;width:1920px;top:870px;text-align:center;font-size:18px;letter-spacing:6px;color:var(--w3);opacity:0">LOG IN  ·  SYNC  ·  PICK  ·  DONE</div>`);sc[4].appendChild(foot);
+const INST='uv tool install git+https://github.com/iammathh/kubepick';
+function s5(u){
+ L5.set({pick:eio(prog(u,0,.5)),links:eo(prog(u,.35,.7)),rings:prog(u,.55,.85),dot:prog(u,.75,1.0),check:eo(prog(u,.95,1.2))});
+ wm5.firstChild.style.transform=`translateY(${(1-eo(prog(u,.5,1.0)))*120}%)`;
+ const p=eo(prog(u,.7,1.1));inst.style.opacity=p;inst.style.transform=`translateY(${(1-p)*24}px)`;
+ inst.firstChild.innerHTML='<span class="dim">$</span> '+typed(INST,u,1.0,48)+caret(u,u<2.45);
+ repo.style.opacity=eo(prog(u,1.9,2.2));foot.style.opacity=eo(prog(u,2.1,2.4));
+}
+
+/* ---------- HUD ---------- */
+const hud=document.getElementById('hud');
+const hudLogo=logo(34);hudLogo.style.left='60px';hudLogo.style.top='44px';hudLogo.set({pick:1,links:1,rings:1,dot:1,check:1});
+hud.append(hudLogo,$(`<div class="abs" style="left:108px;top:46px;font-size:22px;font-weight:600;letter-spacing:1px">kubepick</div>`));
+const hudR=$(`<div class="abs dim" style="right:60px;top:50px;font-size:16px;letter-spacing:5px">AWS · AZURE · GCP</div>`);hud.appendChild(hudR);
+const pbar=$(`<div class="abs" style="left:60px;right:60px;top:1030px;height:1px;background:var(--w4)"></div>`);
+const pfill=$(`<div class="abs" style="left:60px;top:1029px;height:3px;background:var(--grad);width:0"></div>`);
+const ptime=$(`<div class="abs dim" style="right:60px;top:1000px;font-size:15px;letter-spacing:3px"></div>`);
+hud.append(pbar,pfill,ptime);
+SCENES.slice(0,4).forEach(([a,b])=>{const k=$(`<div class="abs" style="left:${60+(W-120)*(b/DUR)}px;top:1024px;width:1px;height:13px;background:var(--w3)"></div>`);hud.appendChild(k)});
+[[24,24,'border-left,border-top'],[W-40,24,'border-right,border-top'],[24,H-40,'border-left,border-bottom'],[W-40,H-40,'border-right,border-bottom']].forEach(([x,y,sd])=>{const e=$(`<div class="abs" style="left:${x}px;top:${y}px;width:16px;height:16px;opacity:.6"></div>`);sd.split(',').forEach(k=>e.style[k.replace(/-(\w)/g,(m,c)=>c.toUpperCase())]='1px solid rgba(20,22,28,.35)');hud.appendChild(e)});
+
+/* ---------- master ---------- */
+const fns=[s1,s2,s3,s4,s5];
+const wipe=document.getElementById('wipe');
+function render(t){
+ t=clamp(t,0,DUR-0.001);
+ SCENES.forEach(([a,b],i)=>{const on=t>=a&&t<b;sc[i].style.display=on?'block':'none';if(on)fns[i](Math.min((t-a)/SLOW,LENS[i]-0.001))});
+ // scene index and wipes
+ let wp=null;
+ for(let i=1;i<SCENES.length;i++){const T=SCENES[i][0];
+  if(t>=T-.3&&t<T){wp=1-eio(prog(t,T-.3,T));wipe.dataset.n=i;wp={x:wp*W,i}}
+  else if(t>=T&&t<T+.3){wp={x:-eio(prog(t,T,T+.3))*W,i}}
+ }
+ if(wp){wipe.style.display='block';wipe.style.transform=`translateX(${wp.x}px)`;wipe.querySelector('div').textContent=NAMES[wp.i];wipe.querySelector('span').textContent='0'+wp.i}
+ else wipe.style.display='none';
+ pfill.style.width=((W-120)*t/DUR)+'px';
+ ptime.textContent='00:'+String(Math.floor(t)).padStart(2,'0')+' / 00:'+String(Math.round(DUR)).padStart(2,'0');
+ scan.setAttribute('y',((t*140)%(H+200))-100);
+}
+window.render=render;render(0);
+</script></body></html>
