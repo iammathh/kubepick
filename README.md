@@ -10,8 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/showreel.gif" alt="kubepick in 30 seconds: log in, sync, pick clusters, get readable names and a clean kubeconfig" width="880"><br>
-  <sub><a href="assets/showreel.mp4">Watch it as a video, with sound</a></sub>
+  <img src="assets/showreel.gif" alt="kubepick in 30 seconds: log in, sync, pick clusters, get readable names and a clean kubeconfig" width="880">
 </p>
 
 ## Install
