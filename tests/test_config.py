@@ -76,6 +76,11 @@ def test_aws_login_uses_granted_when_the_profiles_get_their_credentials_from_it(
 	config['aws']['profiles'] = ["b/Admin"]
 	assert login_command("aws", config)[4] == "https://two/start"
 
+def test_a_portal_written_with_a_trailing_slash_is_the_same_portal(isolated_home):
+	write(isolated_home / ".aws" / "config",
+		GRANTED_PROFILE.format(name="a", url="https://corp/start/") + GRANTED_PROFILE.format(name="b", url="https://corp/start"))
+	assert login_command("aws", load_config())[4] == "https://corp/start"
+
 def test_aws_profiles_one_per_account_preferring_configured_roles(isolated_home):
 	write(isolated_home / ".aws" / "config", """
 [profile dev/ReadOnly]

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from kubepick import __version__
-from kubepick.config import EXAMPLE_CONFIG, cache_dir, config_file, load_config, login_command
+from kubepick.config import EXAMPLE_CONFIG, aws_parser, cache_dir, config_file, granted_portals, load_config, login_command
 from kubepick.kubeconfig import (
 	DEFAULT_KUBECONFIG,
 	add_to_kubeconfig,
@@ -134,7 +134,13 @@ def login(config, clouds):
 			continue
 		command = login_command(cloud, config)
 		if command is None:
-			print("{:<6} set `{}.login` in {} (no single sso-session found in ~/.aws/config to guess it from)".format(prefix, cloud, config_file()))
+			portals = granted_portals(aws_parser(), config['aws']['profiles'])
+			if portals:
+				print("{:<6} set `aws.login` in {}, your Granted profiles log in through {} portals:".format(prefix, config_file(), len(portals)))
+				for url, region in portals:
+					print("         granted sso login --sso-start-url {} --sso-region {}".format(url, region))
+			else:
+				print("{:<6} set `{}.login` in {} (no single sso-session found in ~/.aws/config to guess it from)".format(prefix, cloud, config_file()))
 			continue
 		if shutil.which(command[0]) is None:
 			print("{:<6} skipped, {} not found".format(prefix, command[0]))

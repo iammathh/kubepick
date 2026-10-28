@@ -145,7 +145,8 @@ def granted_portals(parser, profiles):
 			continue
 		url, region = settings.get("granted_sso_start_url"), settings.get("granted_sso_region")
 		if url and region:
-			portals.add((url, region))
+			# the same portal is written with and without the trailing slash
+			portals.add((url.rstrip("/"), region))
 	return sorted(portals)
 
 # The command that logs in to a cloud, or None when it can't be guessed and has to be configured
