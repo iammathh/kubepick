@@ -27,6 +27,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - "not logged in" shows the error the cloud CLI gave, so the cause is visible.
 - `kubepick login aws` logs in with `granted sso login` when the profiles get their credentials from Granted. It used to
   guess `aws sso login` from an sso-session in `~/.aws/config`, which doesn't log those profiles in.
+- A Granted portal written with and without a trailing slash counts as one portal. When the profiles log in through several
+  portals, `kubepick login aws` lists the `granted sso login` command of each instead of talking about sso-sessions.
 
 ## [0.1.0] - 2026-10-16
 

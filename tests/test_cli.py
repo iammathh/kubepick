@@ -218,6 +218,17 @@ def test_login_all_and_named_clouds_do_not_ask(monkeypatch):
 	cli.main(["login", "gcp", "aws"])
 	assert logged_in == [["aws", "azure", "gcp"], ["gcp", "aws"]]
 
+def test_aws_login_that_cannot_be_guessed_lists_the_granted_portals(isolated_home, monkeypatch, capsys):
+	(isolated_home / ".aws").mkdir()
+	(isolated_home / ".aws" / "config").write_text("".join(
+		"[profile {0}/Admin]\ngranted_sso_start_url = https://{0}/start\ngranted_sso_region = eu-central-1\n"
+		"credential_process = granted credential-process --profile {0}/Admin\n".format(name) for name in ["one", "two"]))
+	monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
+	cli.login(default_config(), ["aws"])
+	out = capsys.readouterr().out
+	assert "your Granted profiles log in through 2 portals" in out
+	assert "granted sso login --sso-start-url https://two/start --sso-region eu-central-1" in out
+
 def test_login_without_arguments_and_without_a_terminal_refuses_to_guess(monkeypatch):
 	logged_in = record_logins(monkeypatch)
 	monkeypatch.setattr(cli, "interactive", lambda: False)
