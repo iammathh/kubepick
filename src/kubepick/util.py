@@ -14,6 +14,10 @@ def cluster_id(cluster):
 	# the AWS account id survives a rename of the account, the name doesn't
 	return "|".join([cluster['cloud'], cluster.get('account_id') or cluster['account'], cluster['region'], cluster['name']])
 
+# The account a cluster belongs to, as scanners name the accounts they could not reach
+def account_key(cluster):
+	return cluster.get('account_id') or cluster.get('subscription_id') or cluster['account']
+
 # Run fn over all jobs in parallel with a single in-place progress line, returning {job: result}
 def parallel(label, jobs, fn, workers):
 	results = {}

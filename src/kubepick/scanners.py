@@ -8,7 +8,8 @@ from configparser import ConfigParser
 from kubepick.config import aws_parser
 from kubepick.util import parallel, run
 
-# Every scanner returns a list of clusters, or None when the login for that cloud has expired.
+# Every scanner returns (clusters, unreachable): the clusters it found, and {account key: (account, error)} for the
+# accounts whose login has expired while others still work. When no account works it raises LoggedOut.
 # Any other problem is raised, so it is shown as what it is instead of looking like a logout.
 
 AWS_LOGIN_HINTS = ("sso login", "token has expired", "sso session", "error loading sso token", "identity center token")
@@ -22,6 +23,26 @@ def needs_login(stderr, hints):
 def last_line(stderr):
 	return (stderr.strip().splitlines() or ["command failed"])[-1]
 
+class LoggedOut(Exception):
+	pass
+
+class NeedsLogin:
+	def __init__(self, error):
+		self.error = error
+
+# Run fn over all jobs like parallel(), but don't let one login error stand for a whole cloud: jobs that report one are
+# tried again with less parallelism (many CLIs refreshing the same token at once can trip over each other), and
+# only when every job needs a login is the cloud logged out.
+def scan_jobs(label, jobs, fn, workers):
+	results = parallel(label, jobs, fn, workers)
+	failed = [job for job, result in results.items() if isinstance(result, NeedsLogin)]
+	if failed and len(failed) < len(jobs):
+		results.update(parallel(label, failed, fn, workers=min(workers, 4)))
+	errors = [result.error for result in results.values() if isinstance(result, NeedsLogin)]
+	if jobs and len(errors) == len(jobs):
+		raise LoggedOut(errors[0])
+	return results
+
 
 ### AWS (EKS) ###
 
@@ -33,7 +54,7 @@ def list_eks(profile, region):
 			break
 		time.sleep(2 ** attempt + random.random())
 	if needs_login(result.stderr, AWS_LOGIN_HINTS):
-		return "login"
+		return NeedsLogin(last_line(result.stderr))
 	if result.returncode != 0:
 		# no access to EKS in this region is normal (service control policies, disabled regions)
 		return []
@@ -123,34 +144,45 @@ def aws_account_names(config, accounts):
 	names.update({str(account_id): name for account_id, name in config['aws']['account_names'].items()})
 	return {profile: names.get(account_id) or profile.split("/")[0] for profile, account_id in accounts.items()}
 
+# Every region, asked through the first profile of each SSO portal until one is logged in: profiles can log in
+# through different sso-sessions, and `kubepick login` may only have refreshed one of them.
+def all_aws_regions(profiles):
+	parser = aws_parser()
+	tried, error = set(), None
+	for profile in profiles:
+		portals = tuple(sso_portals(parser, [profile]))
+		if portals in tried:
+			continue
+		tried.add(portals)
+		# any region can list all regions, profiles don't necessarily have a default one
+		result = run(["aws", "ec2", "describe-regions", "--profile", profile, "--region", "us-east-1", "--output", "json", "--no-cli-pager"])
+		if result.returncode == 0:
+			return sorted(region['RegionName'] for region in json.loads(result.stdout)['Regions'])
+		if not needs_login(result.stderr, AWS_LOGIN_HINTS):
+			raise RuntimeError(last_line(result.stderr))
+		error = "{}: {}".format(profile, last_line(result.stderr))
+	raise LoggedOut(error)
+
 def scan_aws(config):
 	accounts = discover_aws_accounts(config)
 	profiles = list(accounts)
 	if len(profiles) == 0:
-		return []
+		return [], {}
 
-	regions = config['aws']['regions']
-	if not regions:
-		# any region can list all regions, profiles don't necessarily have a default one
-		result = run(["aws", "ec2", "describe-regions", "--profile", profiles[0], "--region", "us-east-1", "--output", "json", "--no-cli-pager"])
-		if needs_login(result.stderr, AWS_LOGIN_HINTS):
-			return None
-		if result.returncode != 0:
-			raise RuntimeError(last_line(result.stderr))
-		regions = sorted(region['RegionName'] for region in json.loads(result.stdout)['Regions'])
-
-	results = parallel("AWS", [(p, r) for p in profiles for r in regions], list_eks, workers=12)
-
-	# credentials are cached per account, so an expired session can show up on only some accounts.
-	# A partial scan would make clusters look deleted, so treat it as logged out.
-	if "login" in results.values():
-		return None
-
+	regions = config['aws']['regions'] or all_aws_regions(profiles)
+	results = scan_jobs("AWS", [(p, r) for p in profiles for r in regions], list_eks, workers=12)
 	account_names = aws_account_names(config, accounts)
+
+	# credentials are cached per account, so an expired session can show up on only some accounts. Their clusters
+	# would look deleted, so they are reported as unreachable and keep what was saved for them.
+	unreachable = {}
+	for (profile, region), result in results.items():
+		if isinstance(result, NeedsLogin):
+			unreachable[accounts[profile] or account_names[profile]] = (account_names[profile], result.error)
 	return [
 		{'cloud': "aws", 'account': account_names[profile], 'account_id': accounts[profile], 'profile': profile, 'region': region, 'name': name}
-		for (profile, region), names in sorted(results.items()) for name in names
-	]
+		for (profile, region), names in sorted(results.items()) if not isinstance(names, NeedsLogin) for name in names
+	], unreachable
 
 
 ### Azure (AKS) ###
@@ -159,27 +191,29 @@ def list_aks(subscription_id):
 	result = run(["az", "aks", "list", "--subscription", subscription_id, "--only-show-errors", "-o", "json",
 		"--query", "[].{name:name,resource_group:resourceGroup,region:location,aad:aadProfile.managed}"])
 	if needs_login(result.stderr, AZURE_LOGIN_HINTS):
-		return "login"
+		return NeedsLogin(last_line(result.stderr))
 	if result.returncode != 0:
 		return []
 	return json.loads(result.stdout or "[]")
 
 def scan_azure(config):
-	if run(["az", "account", "get-access-token", "-o", "none", "--only-show-errors"]).returncode != 0:
-		return None
+	token = run(["az", "account", "get-access-token", "-o", "none", "--only-show-errors"])
+	if token.returncode != 0:
+		raise LoggedOut(last_line(token.stderr))
 	result = run(["az", "account", "list", "--only-show-errors", "-o", "json", "--query", "[?state=='Enabled'].{id:id,name:name}"])
 	wanted = config['azure']['subscriptions']
 	subscriptions = {s['id']: s['name'] for s in json.loads(result.stdout or "[]") if not wanted or s['id'] in wanted or s['name'] in wanted}
 
-	results = parallel("Azure", [(s,) for s in subscriptions], list_aks, workers=12)
-	if "login" in results.values():
-		return None
-
+	# a subscription in another tenant can need its own login (MFA, conditional access) while the rest work
+	results = scan_jobs("Azure", [(s,) for s in subscriptions], list_aks, workers=12)
+	unreachable = {subscription_id: (subscriptions[subscription_id], result.error)
+		for (subscription_id,), result in results.items() if isinstance(result, NeedsLogin)}
 	return [
 		{'cloud': "azure", 'account': subscriptions[subscription_id], 'subscription_id': subscription_id, 'resource_group': c['resource_group'],
 			'region': c['region'], 'aad': bool(c['aad']), 'name': c['name']}
-		for (subscription_id,), clusters in sorted(results.items(), key=lambda r: subscriptions[r[0][0]]) for c in clusters
-	]
+		for (subscription_id,), clusters in sorted(results.items(), key=lambda r: subscriptions[r[0][0]])
+		if not isinstance(clusters, NeedsLogin) for c in clusters
+	], unreachable
 
 
 ### GCP (GKE) ###
@@ -192,8 +226,9 @@ def list_gke(project_id):
 	return json.loads(result.stdout or "[]")
 
 def scan_gcp(config):
-	if run(["gcloud", "auth", "print-access-token"]).returncode != 0:
-		return None
+	token = run(["gcloud", "auth", "print-access-token"])
+	if token.returncode != 0:
+		raise LoggedOut(last_line(token.stderr))
 	projects = config['gcp']['projects']
 	if not projects:
 		result = run(["gcloud", "projects", "list", "--format", "json(projectId)"])
@@ -203,7 +238,7 @@ def scan_gcp(config):
 	return [
 		{'cloud': "gcp", 'account': project_id, 'region': c['location'], 'name': c['name']}
 		for (project_id,), clusters in sorted(results.items()) for c in clusters
-	]
+	], {}
 
 
 # where to get the CLI of each cloud

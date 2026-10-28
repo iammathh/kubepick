@@ -19,6 +19,13 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - `kubepick login` without arguments asks which clouds to log in to instead of logging in to all of them. `--all` keeps the old behaviour.
 - Clouds whose CLI is not installed are listed in the login picker, marked with a link to where to get the CLI, and `sync` and `login` print the same link when they skip one.
 
+### Fixed
+- `kubepick sync` no longer reports a whole cloud as not logged in because one AWS account or Azure subscription needs a login
+  of its own, for example a profile on another sso-session or a subscription in a tenant that asks for MFA. The other accounts
+  are synced, the ones that need a login keep their saved clusters and are listed, and a login error is tried again before it
+  is believed. The regions are listed through another SSO portal when the first one is logged out.
+- "not logged in" shows the error the cloud CLI gave, so the cause is visible.
+
 ## [0.1.0] - 2026-10-16
 
 First release.
