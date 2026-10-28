@@ -25,6 +25,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
   are synced, the ones that need a login keep their saved clusters and are listed, and a login error is tried again before it
   is believed. The regions are listed through another SSO portal when the first one is logged out.
 - "not logged in" shows the error the cloud CLI gave, so the cause is visible.
+- `kubepick login aws` logs in with `granted sso login` when the profiles get their credentials from Granted. It used to
+  guess `aws sso login` from an sso-session in `~/.aws/config`, which doesn't log those profiles in.
 
 ## [0.1.0] - 2026-10-16
 
