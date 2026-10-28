@@ -3,14 +3,16 @@ import yaml
 
 from kubepick import cli, kubeconfig
 from kubepick.config import default_config
+from kubepick.scanners import LoggedOut
 
 AWS_CLUSTERS = [
 	{'cloud': "aws", 'account': "team-prod", 'profile': "team-prod/Admin", 'region': "eu-central-1", 'name': "web"},
 	{'cloud': "aws", 'account': "team-dev", 'profile': "team-dev/Admin", 'region': "eu-west-1", 'name': "api"},
 ]
 
-def use_scanner(monkeypatch, cloud, result):
-	monkeypatch.setitem(cli.CLOUDS, cloud, (cli.CLOUDS[cloud][0], result if callable(result) else (lambda config: result)))
+def use_scanner(monkeypatch, cloud, result, unreachable=None):
+	scanner = result if callable(result) else (lambda config: (result, unreachable or {}))
+	monkeypatch.setitem(cli.CLOUDS, cloud, (cli.CLOUDS[cloud][0], scanner))
 	monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
 
 def test_sync_saves_the_list_and_reports_new_clusters(monkeypatch, capsys):
@@ -26,10 +28,24 @@ def test_sync_saves_the_list_and_reports_new_clusters(monkeypatch, capsys):
 def test_a_logged_out_cloud_keeps_the_saved_list(monkeypatch, capsys):
 	use_scanner(monkeypatch, "aws", AWS_CLUSTERS)
 	cli.sync(default_config(), ["aws"])
-	use_scanner(monkeypatch, "aws", None)
+	def logged_out(config):
+		raise LoggedOut("Error loading SSO Token")
+	use_scanner(monkeypatch, "aws", logged_out)
 	cli.sync(default_config(), ["aws"])
-	assert "not logged in, keeping the saved list (2 cluster(s)). Run `kubepick login aws`" in capsys.readouterr().out
+	out = capsys.readouterr().out
+	assert "not logged in, keeping the saved list (2 cluster(s)). Run `kubepick login aws`" in out
+	assert "Error loading SSO Token" in out
 	assert len(cli.load_cache()['clusters']) == 2
+
+def test_an_account_that_needs_its_own_login_keeps_its_saved_clusters(monkeypatch, capsys):
+	use_scanner(monkeypatch, "aws", AWS_CLUSTERS)
+	cli.sync(default_config(), ["aws"])
+	use_scanner(monkeypatch, "aws", AWS_CLUSTERS[:1], {"team-dev": ("team-dev", "AADSTS50076: run az login")})
+	cli.sync(default_config(), ["aws"])
+	out = capsys.readouterr().out
+	assert "1 account(s) not logged in, kept their saved clusters: team-dev" in out
+	assert "AADSTS50076" in out
+	assert sorted(c['name'] for c in cli.load_cache()['clusters']) == ["api", "web"]
 
 def test_a_failing_scan_is_reported_and_keeps_the_saved_list(monkeypatch, capsys):
 	use_scanner(monkeypatch, "aws", AWS_CLUSTERS)
@@ -77,7 +93,7 @@ def region_recorder(monkeypatch, clusters):
 	seen = []
 	def scanner(config):
 		seen.append(config['aws']['regions'])
-		return clusters
+		return clusters, {}
 	use_scanner(monkeypatch, "aws", scanner)
 	return seen
 

@@ -203,5 +203,52 @@ def test_scan_aws_records_the_portal_name_and_account_id(isolated_home, monkeypa
 	monkeypatch.setattr(scanners, "list_eks", lambda profile, region: ["web"] if profile.startswith("stale") else [])
 	config = load_config()
 	config['aws']['regions'] = ["eu-west-1"]
-	assert scanners.scan_aws(config) == [
-		{'cloud': "aws", 'account': "Portal-Name", 'account_id': "111", 'profile': "stale-name/Admin", 'region': "eu-west-1", 'name': "web"}]
+	assert scanners.scan_aws(config) == ([
+		{'cloud': "aws", 'account': "Portal-Name", 'account_id': "111", 'profile': "stale-name/Admin", 'region': "eu-west-1", 'name': "web"}], {})
+
+EXPIRED = "Error loading SSO Token: Token for corp does not exist"
+
+def test_an_account_that_needs_a_login_is_reported_instead_of_logging_out_the_cloud(isolated_home, monkeypatch):
+	write(isolated_home / ".aws" / "config", AWS_CONFIG)
+	fake_granted(monkeypatch, SimpleNamespace(returncode=0, stdout=GRANTED_OUTPUT, stderr=""))
+	monkeypatch.setattr(scanners, "list_eks",
+		lambda profile, region: ["web"] if profile.startswith("stale") else scanners.NeedsLogin(EXPIRED))
+	config = load_config()
+	config['aws']['regions'] = ["eu-west-1"]
+	clusters, unreachable = scanners.scan_aws(config)
+	assert [c['name'] for c in clusters] == ["web"]
+	assert unreachable == {"222": ("Second", EXPIRED)}
+
+def test_a_login_error_that_goes_away_on_a_second_try_is_not_reported(isolated_home, monkeypatch):
+	write(isolated_home / ".aws" / "config", AWS_CONFIG)
+	fake_granted(monkeypatch, SimpleNamespace(returncode=0, stdout=GRANTED_OUTPUT, stderr=""))
+	tries = []
+	def flaky(profile, region):
+		tries.append(profile)
+		return scanners.NeedsLogin(EXPIRED) if profile == "other/Admin" and tries.count(profile) == 1 else ["web"]
+	monkeypatch.setattr(scanners, "list_eks", flaky)
+	config = load_config()
+	config['aws']['regions'] = ["eu-west-1"]
+	clusters, unreachable = scanners.scan_aws(config)
+	assert len(clusters) == 2 and unreachable == {}
+
+def test_a_cloud_is_logged_out_only_when_no_account_works(isolated_home, monkeypatch):
+	write(isolated_home / ".aws" / "config", AWS_CONFIG)
+	fake_granted(monkeypatch, SimpleNamespace(returncode=0, stdout=GRANTED_OUTPUT, stderr=""))
+	monkeypatch.setattr(scanners, "list_eks", lambda profile, region: scanners.NeedsLogin(EXPIRED))
+	config = load_config()
+	config['aws']['regions'] = ["eu-west-1"]
+	with pytest.raises(scanners.LoggedOut, match="Token for corp"):
+		scanners.scan_aws(config)
+
+def test_regions_are_listed_through_another_portal_when_the_first_is_logged_out(isolated_home, monkeypatch):
+	write(isolated_home / ".aws" / "config", AWS_CONFIG)
+	calls = []
+	def fake_run(args, env=None, timeout=None):
+		calls.append(args[args.index("--profile") + 1])
+		if args[-1] == "--no-cli-pager" and calls[-1] == "other/Admin":
+			return SimpleNamespace(returncode=255, stdout="", stderr=EXPIRED)
+		return SimpleNamespace(returncode=0, stdout='{"Regions": [{"RegionName": "eu-west-1"}]}', stderr="")
+	monkeypatch.setattr(scanners, "run", fake_run)
+	assert scanners.all_aws_regions(["other/Admin", "stale-name/Admin"]) == ["eu-west-1"]
+	assert calls == ["other/Admin", "stale-name/Admin"]

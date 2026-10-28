@@ -22,8 +22,8 @@ from kubepick.kubeconfig import (
 	state_path,
 )
 from kubepick.names import PREFIXES, propose_name, unique_name
-from kubepick.scanners import CLOUDS, INSTALL_URLS
-from kubepick.util import cluster_id, now
+from kubepick.scanners import CLOUDS, INSTALL_URLS, LoggedOut
+from kubepick.util import account_key, cluster_id, now
 
 STALE_AFTER_DAYS = 7
 
@@ -91,15 +91,18 @@ def sync(config, clouds, regions=None, all_regions=False):
 			scan_config['aws']['regions'] = chosen
 
 		try:
-			clusters = scanner(scan_config)
+			clusters, unreachable = scanner(scan_config)
+		except LoggedOut as error:
+			# keep what we knew, so a logged out cloud doesn't empty the list
+			print("{:<6} not logged in, keeping the saved list ({} cluster(s)). Run `kubepick login {}` to refresh it".format(prefix, len(old), cloud))
+			print("         {}".format(error))
+			continue
 		except Exception as error:
 			print("{:<6} failed, keeping the saved list ({} cluster(s)): {}".format(prefix, len(old), error))
 			continue
-		if clusters is None:
-			# keep what we knew, so a logged out cloud doesn't empty the list
-			print("{:<6} not logged in, keeping the saved list ({} cluster(s)). Run `kubepick login {}` to refresh it".format(prefix, len(old), cloud))
-			continue
 
+		# accounts that need a login of their own keep their saved clusters instead of looking deleted
+		clusters = clusters + [c for c in old if account_key(c) in unreachable]
 		known = {cluster_id(c) for c in old}
 		new = [c for c in clusters if cluster_id(c) not in known]
 		cache['clusters'] = [c for c in cache['clusters'] if c['cloud'] != cloud] + clusters
@@ -108,6 +111,10 @@ def sync(config, clouds, regions=None, all_regions=False):
 			", {} new".format(len(new)) if old and new else ""))
 		for c in new if old else []:
 			print("         + {} / {}".format(c['account'], c['name']))
+		if unreachable:
+			names = sorted(name for name, error in unreachable.values())
+			print("         {} account(s) not logged in, kept their saved clusters: {}".format(len(names), ", ".join(names)))
+			print("         {}".format(sorted(unreachable.values())[0][1]))
 		if cloud == "aws" and chosen:
 			print("         scanned {}; `kubepick sync --all-regions` checks every region".format(
 				"{} regions".format(len(chosen)) if len(chosen) > 6 else ", ".join(chosen)))
