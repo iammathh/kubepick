@@ -55,6 +55,27 @@ def test_aws_login_is_guessed_only_from_a_single_sso_session(isolated_home):
 	write(aws, "[sso-session a]\n[sso-session b]\n")
 	assert login_command("aws", config) is None
 
+GRANTED_PROFILE = """
+[profile {name}/Admin]
+granted_sso_start_url = {url}
+granted_sso_region = eu-central-1
+granted_sso_account_id = 111
+granted_sso_role_name = Admin
+credential_process = granted credential-process --profile {name}/Admin
+"""
+
+def test_aws_login_uses_granted_when_the_profiles_get_their_credentials_from_it(isolated_home):
+	aws = isolated_home / ".aws" / "config"
+	config = load_config()
+	# the sso-session is there too, but logging in to it doesn't give Granted's profiles credentials
+	write(aws, "[sso-session default]\nsso_start_url = https://corp/start\n" + GRANTED_PROFILE.format(name="a", url="https://corp/start"))
+	assert login_command("aws", config) == [
+		"granted", "sso", "login", "--sso-start-url", "https://corp/start", "--sso-region", "eu-central-1"]
+	write(aws, GRANTED_PROFILE.format(name="a", url="https://one/start") + GRANTED_PROFILE.format(name="b", url="https://two/start"))
+	assert login_command("aws", config) is None
+	config['aws']['profiles'] = ["b/Admin"]
+	assert login_command("aws", config)[4] == "https://two/start"
+
 def test_aws_profiles_one_per_account_preferring_configured_roles(isolated_home):
 	write(isolated_home / ".aws" / "config", """
 [profile dev/ReadOnly]

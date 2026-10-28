@@ -172,7 +172,7 @@ naming:
 
 | Setting | Default |
 | --- | --- |
-| `aws.login` | `aws sso login --sso-session <name>` when `~/.aws/config` has exactly one sso-session, otherwise you have to set it. Use it for tools such as Granted: `granted sso login --sso-start-url ...` |
+| `aws.login` | `granted sso login --sso-start-url <url> --sso-region <region>` when the profiles get their credentials from Granted and all log in through one portal, else `aws sso login --sso-session <name>` when `~/.aws/config` has exactly one sso-session, otherwise you have to set it |
 | `aws.role_preference` | When an account has several roles, the first one in this list wins, otherwise the first profile alphabetically |
 | `aws.regions` | Every enabled region, or the ones remembered from the last full scan |
 | `aws.profiles` | One profile per account, found from the SSO profiles in `~/.aws/config`. Set it to scan exactly these profiles, also non-SSO ones |
@@ -210,7 +210,7 @@ shows up after `kubepick sync --all-regions`. You can also pin the regions in th
 ## Troubleshooting
 
 **`sync` says a cloud is not logged in, but I just logged in.**
-Check that `kubepick login <cloud>` runs the command you use. For AWS, set `aws.login` if you use Granted or several sso-sessions.
+Check that `kubepick login <cloud>` runs the command you use. For AWS, set `aws.login` if you use several sso-sessions or portals.
 An AWS scan that fails for only some accounts is also treated as logged out, because a partial list would make clusters look deleted.
 
 **A cluster is missing.**
